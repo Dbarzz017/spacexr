@@ -9,6 +9,8 @@ extract_estimates <- function(RCTD, rep_id) {
 
   rows_to_add <- list() # empty list of rows to rbind into estimate_df
   row_i <- 1 # count/indexing variable 
+    
+  profile_info <- calculate_ct_prop(RCTD) # calculates cell type prop for this particular replicate
 
   for (cell_type in cell_types) {
       ct_index <- match(cell_type, cell_types) # get the numerical index
@@ -16,6 +18,18 @@ extract_estimates <- function(RCTD, rep_id) {
       # this only keeps genes which converged for our particular cell_type 
       for (gene in rownames(gene_fits$con_mat)[gene_fits$con_mat[, cell_type]]) 
           {
+
+          # we calculate cell type proportions in case deconvolution was used
+            has_profile <- gene %in% rownames(profile_info$cell_prop) &&
+            cell_type %in% colnames(profile_info$cell_prop)
+
+            if (has_profile) {
+                ct_prop <- profile_info$cell_prop[gene, cell_type]
+                expr <- profile_info$cell_type_means[gene, cell_type]
+            } else {
+                ct_prop <- NA_real_
+                expr <- NA_real_
+            }
           # next we loop through the different covariates in the matrix. Note that we start at 2 since the first columm is conventionally the intercept, which we do not want in our estimates matrix for meta analysis, as that adds computation for nothing. IF NEEDED, can add it later. 
 
           for (cov in 2:n_params) {
@@ -47,6 +61,8 @@ extract_estimates <- function(RCTD, rep_id) {
                   param_index = cov,
                   estimate = estimate,
                   se = se,
+                  ct_prop = ct_prop,
+                  expr = expr,
                   stringsAsFactors = FALSE
               )
 

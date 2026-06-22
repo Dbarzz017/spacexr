@@ -30,5 +30,5 @@ Imports:
 	locfdr,
 	metafor,
 	data.table
-RoxygenNote: 7.3.2
 VignetteBuilder: knitr
+Config/roxygen2/version: 8.0.0

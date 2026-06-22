@@ -1,12 +1,12 @@
 #pair functions for all modes of main function: 
 #fixed effects
-pair_rma_calc_fe <- function(pair) {
+pair_rma_calc_fe <- function(pair, min_reps = 2L, se_max = 4) {
     # good drafted result schematic. fit will be the index at which you obtain an entire rma object. This is heavy, but good for now. 
     out <- list(
         gene = pair$gene[[1]],
         cell_type = pair$cell_type[[1]],
         effect_id = pair$effect_id[[1]],
-        n_reps = nrow(pair),
+        n_reps = length(unique(pair$replicate_id)), 
         formula = ~1,
         random = NULL,
         fit = NULL,
@@ -15,12 +15,20 @@ pair_rma_calc_fe <- function(pair) {
     )
 
     res <- tryCatch(
-        rma.uni(
-            yi = pair$estimate,
-            sei = pair$se,
-            method = "FE",
-            data = pair
-        ),
+        {
+            validate_pair(
+                pair,
+                min_reps = min_reps,
+                se_max = se_max
+            )
+
+            metafor::rma.uni(
+                yi = pair$estimate,
+                sei = pair$se,
+                method = "FE",
+                data = pair
+            )
+        },
         error = function(e) e,
         warning = function(w) w
     )
@@ -36,13 +44,13 @@ pair_rma_calc_fe <- function(pair) {
 }
 
 #random effects
-pair_rma_calc_re <- function(pair) {
+pair_rma_calc_re <- function(pair, min_reps = 2L, se_max = 4) {
     # good drafted result schematic. fit will be the index at which you obtain an entire rma object. This is heavy, but good for now. 
     out <- list(
         gene = pair$gene[[1]],
         cell_type = pair$cell_type[[1]],
         effect_id = pair$effect_id[[1]],
-        n_reps = nrow(pair),
+        n_reps = length(unique(pair$replicate_id)), 
         formula = ~1,
         random = NULL,
         fit = NULL,
@@ -51,12 +59,20 @@ pair_rma_calc_re <- function(pair) {
     )
 
     res <- tryCatch(
-        rma.uni(
-            yi = pair$estimate,
-            sei = pair$se,
-            method = "REML",
-            data = pair
-        ),
+        {
+            validate_pair(
+                pair,
+                min_reps = min_reps,
+                se_max = se_max
+            )
+
+            metafor::rma.uni(
+                yi = pair$estimate,
+                sei = pair$se,
+                method = "REML",
+                data = pair
+            )
+        },
         error = function(e) e,
         warning = function(w) w
     )
@@ -72,13 +88,13 @@ pair_rma_calc_re <- function(pair) {
 }
 
 #mixed effects
-pair_rma_calc_me <- function(pair, formula = ~1) {
+pair_rma_calc_me <- function(pair, formula = ~1, min_reps = 2L, se_max = 4) {
     # good drafted result schematic. fit will be the index at which you obtain an entire rma object. This is heavy, but good for now. 
     out <- list(
         gene = pair$gene[[1]],
         cell_type = pair$cell_type[[1]],
         effect_id = pair$effect_id[[1]],
-        n_reps = nrow(pair),
+        n_reps = length(unique(pair$replicate_id)), 
         formula = formula,
         random = NULL,
         fit = NULL,
@@ -87,13 +103,21 @@ pair_rma_calc_me <- function(pair, formula = ~1) {
     )
 
     res <- tryCatch(
-        rma.uni(
-            yi = pair$estimate,
-            sei = pair$se,
-            mods = formula,
-            data = pair,
-            method = "REML"
-        ),
+        {
+            validate_pair(
+                pair,
+                formula = formula,
+                min_reps = min_reps,
+                se_max = se_max
+            )
+
+            metafor::rma.uni(
+                yi = pair$estimate,
+                sei = pair$se,
+                method = "REML",
+                data = pair
+            )
+        },
         error = function(e) e,
         warning = function(w) w
     )
@@ -110,7 +134,7 @@ pair_rma_calc_me <- function(pair, formula = ~1) {
 
 
 #multilevel
-pair_rma_calc_mv <- function(pair, formula = ~1, random) {
+pair_rma_calc_mv <- function(pair, formula = ~1, random, min_reps = 2L, se_max = 4) {
     #check random is nonempty
     if (missing(random) || is.null(random)) {
         stop("random argument must be nonempty and not null. If no random structure, then use rma.uni mode")
@@ -120,7 +144,7 @@ pair_rma_calc_mv <- function(pair, formula = ~1, random) {
         gene = pair$gene[[1]],
         cell_type = pair$cell_type[[1]],
         effect_id = pair$effect_id[[1]],
-        n_reps = nrow(pair),
+        n_reps = length(unique(pair$replicate_id)), 
         formula = formula,
         random = random,
         fit = NULL,
@@ -129,15 +153,25 @@ pair_rma_calc_mv <- function(pair, formula = ~1, random) {
     )
 
     res <- tryCatch(
-        rma.mv(
-            yi = pair$estimate,
-            V = pair$se^2,
-            mods = formula,
-            random = random,
-            data = pair
-        ),
-        error = function(e) e,
-        warning = function(w) w
+        {
+            validate_pair(
+                pair,
+                formula = formula,
+                random = random,
+                min_reps = min_reps,
+                se_max = se_max
+            )
+
+            metafor::rma.mv(
+                yi = pair$estimate,
+                V = pair$se^2,
+                mods = formula,
+                random = random,
+                data = pair
+            )
+        },
+            error = function(e) e,
+            warning = function(w) w
     )
 
     if (inherits(res, "error") || inherits(res, "warning")) {

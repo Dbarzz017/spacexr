@@ -145,3 +145,71 @@ validate_moderators <- function(moderators, rep_ids, rep_id_col = NULL) {
   )
 
 }
+
+
+validate_pair <- function(pair, formula = ~1, random = NULL, min_reps = 2L, se_max = 4) {
+    n_reps <- length(unique(pair$replicate_id))
+
+    if (n_reps < min_reps) {
+        stop("insufficient replicates", call. = FALSE)
+    }
+    if (anyDuplicated(pair$replicate_id) > 0L) {
+        stop("duplicated replicates in pair", call. = FALSE)
+    }
+    if (!all(is.finite(pair$estimate))) {
+        stop("estimate is not finite", call. = FALSE)
+    }
+    if (!all(is.finite(pair$se))) {
+        stop("se is not finite", call. = FALSE)
+    }
+    if (!all(pair$se > 0)) {
+        stop("se is not positive", call. = FALSE)
+    }
+    if (!all(pair$se < se_max)) {
+        stop("se is greater than or equal to se_max", call. = FALSE)
+    }
+
+    model_vars <- all.vars(formula)
+
+    if (length(model_vars) > 0 &&
+        any(!complete.cases(pair[, model_vars, drop = FALSE]))) {
+        stop("missing moderator values", call. = FALSE)
+    }
+
+    X <- model.matrix(formula, data = pair)
+    X_rank <- qr(X)$rank
+
+    if (X_rank < ncol(X)) {
+        stop("rank deficient design", call. = FALSE)
+    }
+    if (n_reps <= X_rank) {
+        stop("insufficient residual degrees of freedom", call. = FALSE)
+    }
+
+    invisible(TRUE)
+}
+
+calculate_ct_prop <- function(RCTD) {
+    cell_types_present <- RCTD@internal_vars_de$cell_types_present
+
+    cell_type_means <- RCTD@cell_type_info$info[[1]][
+        ,
+        cell_types_present,
+        drop = FALSE
+    ]
+
+    gene_max <- apply(cell_type_means, 1, max)
+    gene_max[!is.finite(gene_max) | gene_max <= 0] <- NA_real_
+
+    cell_prop <- sweep(
+        cell_type_means,
+        1,
+        gene_max,
+        "/"
+    )
+
+    return(list(
+        cell_prop = cell_prop,
+        cell_type_means = cell_type_means
+    ))
+}

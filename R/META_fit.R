@@ -1,52 +1,111 @@
 #main fitting function
-fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1, random = NULL, analysis_id = NULL, overwrite = FALSE) {
+fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1, random = NULL, analysis_id = NULL, overwrite = FALSE, min_reps = 2L, se_max = 4, ct_prop_min = NULL) {
     # first we must do all sorts of preprocessing/preparation of the data with regards to universal things. That is, focusing on aspects of the function which must be applied to all data regardless of mode. 
     # So far, merging the estimates and metadata, isolating all unique pairs of ct/gene/effect, and filtering based off how many reps per pair (assume k reps per pair at minimum, k >= 3). Incorporate other filters later: 
 
     merged_df <- merge(metaset@estimates, metaset@metadata, by = "replicate_id", all = FALSE, sort = FALSE)
 
-    # run all checks
-    # an important check is to make sure the number of replicates >= number of moderators + 1 to ensure enough degrees of freedom for model.
+    # Normalize submode first.
+    if (is.null(submode) || submode == "") {
+        submode <- "random"
+    }
+
     active_formula <- if (mode == "uni" && submode %in% c("fixed", "random")) {
         ~1
     } else {
         formula
     }
-    X <- model.matrix(active_formula, data = merged_df)
-    if (qr(X)$rank < ncol(X)) {
-    stop("Design matrix is rank deficient.")
+
+    # Validate formula variables before model.matrix().
+    formula_vars <- all.vars(active_formula)
+    missing_formula_vars <- setdiff(formula_vars, colnames(merged_df))
+
+    if (length(missing_formula_vars) > 0) {
+        stop(
+            "Formula variables missing from merged data: ",
+            paste(missing_formula_vars, collapse = ", ")
+        )
     }
-    min_reps <- max(qr(X)$rank + 1, 3) # need reps to be either at least 3 or one more than the number of fixed-effect terms
-    #make sure all values in merged_df are finite with positive se. 
+
+    # Apply row-level filters.
     merged_df <- merged_df[
-    is.finite(merged_df$estimate) &
-    is.finite(merged_df$se) &
-    merged_df$se > 0,
+        is.finite(merged_df$estimate) &
+        is.finite(merged_df$se) &
+        merged_df$se > 0 &
+        merged_df$se < se_max,
+        ,
+        drop = FALSE
     ]
 
-    #check empty submode:
-    if (is.null(submode) || submode == "") {
-    submode <- "random"
+    if (!is.null(ct_prop_min)) {
+        if (
+            length(ct_prop_min) != 1L ||
+            !is.numeric(ct_prop_min) ||
+            !is.finite(ct_prop_min) ||
+            ct_prop_min < 0 ||
+            ct_prop_min > 1
+        ) {
+            stop("ct_prop_min must be NULL or one numeric value between 0 and 1.")
+        }
+
+        if (!"ct_prop" %in% colnames(merged_df)) {
+            stop("ct_prop_min was provided, but estimates does not contain ct_prop.")
+        }
+
+        merged_df <- merged_df[
+            is.finite(merged_df$ct_prop) &
+            merged_df$ct_prop >= ct_prop_min,
+            ,
+            drop = FALSE
+        ]
     }
 
-    #check to make sure all formula variables are present in merged_df and vice versa: 
-    formula_vars <- all.vars(formula)
-    missing_formula_vars <- setdiff(formula_vars, colnames(merged_df))
-    if (length(missing_formula_vars) > 0) {
-        stop("Formula variables missing from merged data: ", paste(missing_formula_vars, collapse = ", "))
-    } 
-    #next we obtain all possible pairs (using a factor is easiest to prevent dups) 
+    if (length(formula_vars) > 0) {
+        merged_df <- merged_df[
+            complete.cases(merged_df[, formula_vars, drop = FALSE]),
+            ,
+            drop = FALSE
+        ]
+    }
 
-    # this process on teh two lines below is very inefficient. Need to find a better way to do it. 
-    pairs <- interaction(merged_df$gene, merged_df$cell_type, merged_df$effect_id, drop = TRUE)
+    if (nrow(merged_df) == 0) {
+        stop("No estimate rows remain after preprocessing.")
+    }
+
+    # Global design check.
+    X <- model.matrix(active_formula, data = merged_df)
+
+    if (qr(X)$rank < ncol(X)) {
+        stop("Design matrix is rank deficient.")
+    }
+
+    required_min_reps <- max(
+        min_reps,
+        qr(X)$rank + 1L
+    )
+
+    # Construct pairs after all row filtering.
+    pairs <- interaction(
+        merged_df$gene,
+        merged_df$cell_type,
+        merged_df$effect_id,
+        drop = TRUE
+    )
+
     pairs_df <- split(merged_df, pairs)
-    #we only want to keep the pairs of split_df which have more or equak to than hte sufficient number of entries
-    num_rows <- vapply(pairs_df, nrow, integer(1))
-    pairs_df <- pairs_df[num_rows >= min_reps] # this is a list
-    #make sure at least 1 valid pair: 
+
+    pair_rep_counts <- vapply(
+        pairs_df,
+        function(pair) length(unique(pair$replicate_id)),
+        integer(1)
+    )
+
+    pairs_df <- pairs_df[pair_rep_counts >= required_min_reps]
+
     if (length(pairs_df) == 0) {
-        stop("No pairs with sufficient number of reps to test. Ensure at least one gene x celltype x effect pair has a number of replicates that is greater than the number of moderators, or if no moderators are present, this sufficient number is 2.")
+        stop("No pairs have enough replicates after preprocessing.")
     }
+
     message("Number of pairs with sufficient reps: ", length(pairs_df))
 
     #include more preprocessing steps below this line: 
@@ -59,15 +118,15 @@ fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1,
 
         if (submode == "fixed") {
             #logic for fixed effect meta analysis goes here
-            res_list <- lapply(pairs_df, pair_rma_calc_fe)
+            res_list <- lapply(pairs_df, pair_rma_calc_fe, min_reps = min_reps, se_max = se_max)
 
         } else if (submode == "random") {
             # logic for random-effects meta analysis goes here 
-            res_list <- lapply(pairs_df, pair_rma_calc_re)
+            res_list <- lapply(pairs_df, pair_rma_calc_re, min_reps = min_reps, se_max = se_max)
         } else if (submode == "mixed") {
             # logic for mixed-effects meta regression
             # need to isolate design matrix.  To do so, assume FOR NOW that our metadata_df is hardcoded and that we know that our moderator data starts at column 12 until the end in pairs_df. This should probably be fixed because it seems very hardcoded. 
-            res_list <- lapply(pairs_df, pair_rma_calc_me, formula = formula)
+            res_list <- lapply(pairs_df, pair_rma_calc_me, formula = active_formula, min_reps = min_reps, se_max = se_max)
 
         } else {
             # throw an error
@@ -81,7 +140,7 @@ fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1,
             stop("random must be supplied for mode = 'mv'. If no random structure, then use mode = 'uni'.")
         }
 
-        res_list <- lapply(pairs_df, pair_rma_calc_mv, formula = formula, random = random)
+        res_list <- lapply(pairs_df, pair_rma_calc_mv, formula = active_formula, random = random, min_reps = min_reps, se_max = se_max)
 
         #for now, assume user passes through their nesting structure for the variance-covariance matrix with a value in random 
 
