@@ -152,7 +152,7 @@ fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1,
 
     # check to see if analysis_id is null, at which point use our automatic formula: 
     if (is.null(analysis_id)) {
-    formula_id <- paste(deparse(formula), collapse = "")
+    formula_id <- paste(deparse(active_formula), collapse = "")
     formula_id <- gsub("[^A-Za-z0-9_]+", "_", formula_id)
     formula_id <- gsub("^_+|_+$", "", formula_id)
 
@@ -179,16 +179,108 @@ fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1,
         stop("analysis_id already exists in metaset@results. Set overwrite = TRUE to replace it.")
     }
 
+    # summary of the analysis (not data, but the analysis in general) 
+    analysis_info <- list(
+        analysis_id = analysis_id,
+        mode = mode,
+        submode = submode,
+        formula = paste(deparse(active_formula), collapse = ""),
+        random = if (is.null(random)) NA_character_ else paste(deparse(random), collapse = ""),
+        min_reps = min_reps,
+        se_max = se_max,
+        ct_prop_min = ct_prop_min,
+        n_pairs = length(res_list),
+        n_converged = sum(vapply(res_list, function(x) isTRUE(x$converged), logical(1))),
+        n_failed = sum(!vapply(res_list, function(x) isTRUE(x$converged), logical(1))),
+        call = match.call()
+    )
+
+    # summary of the main results ordered by significance
+    results_summary <- do.call(rbind, lapply(res_list, function(rec) {
+        # in case pair didn't converge or is null
+        if (!isTRUE(rec$converged) || is.null(rec$fit)) {
+            return(data.frame(
+                gene = rec$gene,
+                cell_type = rec$cell_type,
+                effect_id = rec$effect_id,
+                term = NA_character_,
+                estimate = NA_real_,
+                se = NA_real_,
+                zval = NA_real_,
+                p_val = NA_real_,
+                ci_low = NA_real_,
+                ci_high = NA_real_,
+                n_reps = rec$n_reps,
+                tau2 = NA_real_,
+                I2 = NA_real_,
+                QE = NA_real_,
+                QEp = NA_real_,
+                converged = FALSE,
+                message = rec$message,
+                stringsAsFactors = FALSE
+            ))
+        }
+        # otherwise populate: this is all simple parsing
+        fit <- rec$fit
+        terms <- rownames(fit$b)
+        if (is.null(terms)) {
+            terms <- paste0("term_", seq_along(as.numeric(fit$b)))
+        }
+        
+        data.frame(
+            gene = rec$gene,
+            cell_type = rec$cell_type,
+            effect_id = rec$effect_id,
+            term = terms,
+            estimate = as.numeric(fit$b),
+            se = as.numeric(fit$se),
+            zval = as.numeric(fit$zval),
+            p_val = as.numeric(fit$pval),
+            ci_low = as.numeric(fit$ci.lb),
+            ci_high = as.numeric(fit$ci.ub),
+            n_reps = rec$n_reps,
+            tau2 = if (!is.null(fit$tau2)) fit$tau2 else NA_real_,
+            I2 = if (!is.null(fit$I2)) fit$I2 else NA_real_,
+            QE = if (!is.null(fit$QE)) fit$QE else NA_real_,
+            QEp = if (!is.null(fit$QEp)) fit$QEp else NA_real_,
+            converged = TRUE,
+            message = NA_character_,
+            stringsAsFactors = FALSE
+        )
+    }))
+
+    # make qvals and sort by significance
+    rownames(results_summary) <- NULL
+    results_summary$q_val <- NA_real_
+    finite <- is.finite(results_summary$p_val)
+    if (any(finite)) {
+        q_groups <- interaction(
+            results_summary$cell_type,
+            results_summary$effect_id,
+            results_summary$term,
+            drop = TRUE
+        )
+        results_summary$q_val[finite] <- unsplit(
+            lapply(
+                split(results_summary$p_val[finite], q_groups[finite]),
+                p.adjust,
+                method = "BH"
+            ),
+            q_groups[finite]
+        )
+    }
+    q_order <- ifelse(is.na(results_summary$q_val), Inf, results_summary$q_val)
+    results_summary <- results_summary[
+        order(q_order, -abs(results_summary$estimate)),
+        ,
+        drop = FALSE
+    ]
+    rownames(results_summary) <- NULL
     #lastly, return a list at entry "analysis_id" in teh results slot of our metaset. 
     metaset@results[[analysis_id]] <- list(
-    analysis_id = analysis_id,
-    call = match.call(),
-    mode = mode,
-    submode = submode,
-    formula = formula,
-    random = random,
-    n_pairs = length(res_list),
-    fit_records = res_list
+        analysis_info = analysis_info,
+        results_summary = results_summary,
+        fit_records = res_list
     )
 
     return(metaset) 
