@@ -114,6 +114,7 @@ pair_rma_calc_me <- function(pair, formula = ~1, min_reps = 2L, se_max = 4) {
             metafor::rma.uni(
                 yi = pair$estimate,
                 sei = pair$se,
+                mods = formula, 
                 method = "REML",
                 data = pair
             )
