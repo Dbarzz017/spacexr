@@ -1,5 +1,5 @@
 #main fitting function
-fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1, random = NULL, analysis_id = NULL, overwrite = FALSE, min_reps = 2L, se_max = 4, ct_prop_min = NULL) {
+fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1, random = NULL, analysis_id = NULL, overwrite = FALSE, min_reps = 2L, se_max = 4, ct_prop_min = NULL, test = 'z', dfs = 'residual') {
     # first we must do all sorts of preprocessing/preparation of the data with regards to universal things. That is, focusing on aspects of the function which must be applied to all data regardless of mode. 
     # So far, merging the estimates and metadata, isolating all unique pairs of ct/gene/effect, and filtering based off how many reps per pair (assume k reps per pair at minimum, k >= 3). Incorporate other filters later: 
 
@@ -14,6 +14,21 @@ fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1,
         ~1
     } else {
         formula
+    }
+
+    # validate test and df parameters
+    if (!test %in% c("z", "t", "knha", "adhoc")) {
+        stop("test must be one of: 'z', 't', 'knha', or 'adhoc'.")
+    }
+
+    if (mode == "mv") {
+        if (!test %in% c("z", "t")) {
+            stop("For mode = 'mv', test must be either 'z' or 't'.")
+        }
+
+        if (!dfs %in% c("residual", "contain")) {
+            stop("For mode = 'mv', dfs must be 'residual' or 'contain'.")
+        }
     }
 
     # Validate formula variables before model.matrix().
@@ -84,6 +99,9 @@ fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1,
         qr(X)$rank + 1L
     )
 
+
+
+
     # Construct pairs after all row filtering.
     pairs <- interaction(
         merged_df$gene,
@@ -122,11 +140,11 @@ fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1,
 
         } else if (submode == "random") {
             # logic for random-effects meta analysis goes here 
-            res_list <- lapply(pairs_df, pair_rma_calc_re, min_reps = min_reps, se_max = se_max)
+            res_list <- lapply(pairs_df, pair_rma_calc_re, min_reps = min_reps, se_max = se_max, test = test)
         } else if (submode == "mixed") {
             # logic for mixed-effects meta regression
             # need to isolate design matrix.  To do so, assume FOR NOW that our metadata_df is hardcoded and that we know that our moderator data starts at column 12 until the end in pairs_df. This should probably be fixed because it seems very hardcoded. 
-            res_list <- lapply(pairs_df, pair_rma_calc_me, formula = active_formula, min_reps = min_reps, se_max = se_max)
+            res_list <- lapply(pairs_df, pair_rma_calc_me, formula = active_formula, min_reps = min_reps, se_max = se_max, test = test)
 
         } else {
             # throw an error
@@ -140,7 +158,7 @@ fit_metaset <- function(metaset, mode = "uni", submode = "random", formula = ~1,
             stop("random must be supplied for mode = 'mv'. If no random structure, then use mode = 'uni'.")
         }
 
-        res_list <- lapply(pairs_df, pair_rma_calc_mv, formula = active_formula, random = random, min_reps = min_reps, se_max = se_max)
+        res_list <- lapply(pairs_df, pair_rma_calc_mv, formula = active_formula, random = random, min_reps = min_reps, se_max = se_max, test = test, dfs = dfs)
 
         #for now, assume user passes through their nesting structure for the variance-covariance matrix with a value in random 
 

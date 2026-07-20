@@ -44,7 +44,7 @@ pair_rma_calc_fe <- function(pair, min_reps = 2L, se_max = 4) {
 }
 
 #random effects
-pair_rma_calc_re <- function(pair, min_reps = 2L, se_max = 4) {
+pair_rma_calc_re <- function(pair, min_reps = 2L, se_max = 4, test = 'z') {
     # good drafted result schematic. fit will be the index at which you obtain an entire rma object. This is heavy, but good for now. 
     out <- list(
         gene = pair$gene[[1]],
@@ -70,7 +70,8 @@ pair_rma_calc_re <- function(pair, min_reps = 2L, se_max = 4) {
                 yi = pair$estimate,
                 sei = pair$se,
                 method = "REML",
-                data = pair
+                data = pair,
+                test = test
             )
         },
         error = function(e) e,
@@ -88,7 +89,7 @@ pair_rma_calc_re <- function(pair, min_reps = 2L, se_max = 4) {
 }
 
 #mixed effects
-pair_rma_calc_me <- function(pair, formula = ~1, min_reps = 2L, se_max = 4) {
+pair_rma_calc_me <- function(pair, formula = ~1, min_reps = 2L, se_max = 4, test = 'z') {
     # good drafted result schematic. fit will be the index at which you obtain an entire rma object. This is heavy, but good for now. 
     out <- list(
         gene = pair$gene[[1]],
@@ -116,7 +117,8 @@ pair_rma_calc_me <- function(pair, formula = ~1, min_reps = 2L, se_max = 4) {
                 sei = pair$se,
                 mods = formula, 
                 method = "REML",
-                data = pair
+                data = pair,
+                test = test
             )
         },
         error = function(e) e,
@@ -135,7 +137,7 @@ pair_rma_calc_me <- function(pair, formula = ~1, min_reps = 2L, se_max = 4) {
 
 
 #multilevel
-pair_rma_calc_mv <- function(pair, formula = ~1, random, min_reps = 2L, se_max = 4) {
+pair_rma_calc_mv <- function(pair, formula = ~1, random, min_reps = 2L, se_max = 4, test = 'z', dfs = 'residual') {
     #check random is nonempty
     if (missing(random) || is.null(random)) {
         stop("random argument must be nonempty and not null. If no random structure, then use rma.uni mode")
@@ -168,7 +170,9 @@ pair_rma_calc_mv <- function(pair, formula = ~1, random, min_reps = 2L, se_max =
                 V = pair$se^2,
                 mods = formula,
                 random = random,
-                data = pair
+                data = pair,
+                test = test, 
+                dfs = dfs
             )
         },
             error = function(e) e,
